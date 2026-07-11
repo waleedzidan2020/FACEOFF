@@ -7,10 +7,16 @@ const genderResult = document.getElementById('genderResult');
 const confidenceResult = document.getElementById('confidenceResult');
 const ageResult = document.getElementById('ageResult');
 
-const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+const MODEL_URLS = [
+  'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights',
+  'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights',
+  'https://justadudewhohacks.github.io/face-api.js/models'
+];
+
 let stream = null;
 let detectionTimer = null;
 let modelsReady = false;
+let activeModelUrl = null;
 
 function setStatus(message) {
   statusEl.textContent = message;
@@ -40,22 +46,35 @@ function getReadableCameraError(error) {
   return messages[name] || `تعذر تشغيل الكاميرا. نوع الخطأ: ${name}`;
 }
 
+async function loadModelsFrom(url) {
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(url),
+    faceapi.nets.ageGenderNet.loadFromUri(url)
+  ]);
+}
+
 async function loadModels() {
   if (modelsReady) return;
   setStatus('جاري تحميل نماذج الذكاء الاصطناعي...');
 
-  try {
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL)
-    ]);
+  const errors = [];
 
-    modelsReady = true;
-    setStatus('تم تحميل النماذج. شغّل الكاميرا.');
-  } catch (error) {
-    console.error('Model loading error:', error);
-    throw new Error('فشل تحميل نماذج الذكاء الاصطناعي. تأكد من اتصال الإنترنت ثم اعمل Refresh.');
+  for (const url of MODEL_URLS) {
+    try {
+      setStatus(`جاري تحميل النماذج من مصدر ${MODEL_URLS.indexOf(url) + 1}/${MODEL_URLS.length}...`);
+      await loadModelsFrom(url);
+      modelsReady = true;
+      activeModelUrl = url;
+      setStatus('تم تحميل النماذج. شغّل الكاميرا.');
+      return;
+    } catch (error) {
+      console.warn('Model source failed:', url, error);
+      errors.push(`${url} => ${error?.message || error}`);
+    }
   }
+
+  console.error('All model sources failed:', errors);
+  throw new Error('فشل تحميل نماذج الذكاء الاصطناعي من كل المصادر. جرّب فتح الموقع من Chrome أو Edge بدون VPN/AdBlock ثم اعمل Refresh.');
 }
 
 async function requestCamera() {
@@ -91,11 +110,11 @@ async function startCamera() {
 
     video.srcObject = stream;
     stopBtn.disabled = false;
-    setStatus('الكاميرا تعمل الآن...');
+    setStatus(`الكاميرا تعمل الآن... مصدر النماذج: ${activeModelUrl ? 'جاهز' : 'غير معروف'}`);
 
     video.addEventListener('loadedmetadata', startDetection, { once: true });
   } catch (error) {
-    console.error('Camera error:', error);
+    console.error('Camera/model error:', error);
     startBtn.disabled = false;
     stopBtn.disabled = true;
 
